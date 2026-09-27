@@ -1,26 +1,62 @@
 @import "tailwindcss";
 
+/*
+  MN Garments design system.
+  Palette: Navy #16325B, Gold/Amber #C4A77C, Dark Slate #0F172A.
+*/
+
 :root {
   --background: #ffffff;
-  --foreground: #171717;
+  --foreground: #0f172a;
+
+  --brand-navy: #16325b;
+  --brand-navy-700: #1d3f70;
+  --brand-navy-900: #0e223e;
+  --brand-gold: #c4a77c;
+  --brand-gold-600: #b5946a;
+  --brand-slate: #0f172a;
 }
 
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+
+  --color-brand-navy: var(--brand-navy);
+  --color-brand-navy-700: var(--brand-navy-700);
+  --color-brand-navy-900: var(--brand-navy-900);
+  --color-brand-gold: var(--brand-gold);
+  --color-brand-gold-600: var(--brand-gold-600);
+  --color-brand-slate: var(--brand-slate);
+
+  --font-sans: var(--font-sans), ui-sans-serif, system-ui, sans-serif;
+  --font-serif: var(--font-serif), ui-serif, Georgia, serif;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+html {
+  scroll-behavior: smooth;
 }
 
 body {
   background: var(--background);
   color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  font-family: var(--font-sans), ui-sans-serif, system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Utility: gold gradient text for the "N" accent feel */
+.text-gold-gradient {
+  background: linear-gradient(135deg, #c4a77c 0%, #e6d2ab 50%, #b5946a 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+/* Thin scrollbar for staging tables */
+.thin-scroll::-webkit-scrollbar {
+  height: 8px;
+  width: 8px;
+}
+.thin-scroll::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+  border-radius: 9999px;
 }
