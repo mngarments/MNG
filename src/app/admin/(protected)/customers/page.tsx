@@ -8,6 +8,8 @@ import {
   Loader2,
   MailWarning,
   Download,
+  UserPlus,
+  X,
 } from "lucide-react";
 import type { Customer } from "@/lib/types";
 
@@ -18,7 +20,20 @@ export default function CustomersPage() {
   const [importMsg, setImportMsg] = useState<string | null>(null);
   const [importErr, setImportErr] = useState<string | null>(null);
   const [importing, setImporting] = useState(false);
+  const [adding, setAdding] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
+
+  function upsertLocal(updated: Customer) {
+    setCustomers((prev) => {
+      const exists = prev.some((x) => x.party_code === updated.party_code);
+      const next = exists
+        ? prev.map((x) => (x.party_code === updated.party_code ? updated : x))
+        : [...prev, updated];
+      return next.sort((a, b) =>
+        (a.party_name || "").localeCompare(b.party_name || "")
+      );
+    });
+  }
 
   async function load() {
     setLoading(true);
@@ -95,6 +110,13 @@ export default function CustomersPage() {
             }}
           />
           <button
+            onClick={() => setAdding((v) => !v)}
+            className="inline-flex items-center gap-2 border border-brand-navy text-brand-navy hover:bg-brand-navy/5 rounded-lg px-4 py-2 text-sm font-medium"
+          >
+            <UserPlus className="w-4 h-4" />
+            Add customer
+          </button>
+          <button
             onClick={() => fileRef.current?.click()}
             disabled={importing}
             className="inline-flex items-center gap-2 bg-brand-navy hover:bg-brand-navy-700 text-white rounded-lg px-4 py-2 text-sm font-medium disabled:opacity-60"
@@ -108,6 +130,17 @@ export default function CustomersPage() {
           </button>
         </div>
       </header>
+
+      {adding && (
+        <AddCustomerForm
+          existingCodes={customers.map((c) => c.party_code)}
+          onCancel={() => setAdding(false)}
+          onAdded={(c) => {
+            upsertLocal(c);
+            setAdding(false);
+          }}
+        />
+      )}
 
       <div className="rounded-lg border border-slate-200 bg-white p-3 mb-4 text-xs text-slate-500 flex items-start gap-2">
         <Download className="w-4 h-4 shrink-0 mt-0.5 text-brand-navy" />
@@ -170,6 +203,157 @@ export default function CustomersPage() {
           </table>
         </div>
       )}
+    </div>
+  );
+}
+
+function AddCustomerForm({
+  existingCodes,
+  onAdded,
+  onCancel,
+}: {
+  existingCodes: string[];
+  onAdded: (c: Customer) => void;
+  onCancel: () => void;
+}) {
+  const [partyCode, setPartyCode] = useState("");
+  const [partyName, setPartyName] = useState("");
+  const [gstin, setGstin] = useState("");
+  const [email, setEmail] = useState("");
+  const [phone, setPhone] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function save() {
+    setError(null);
+    const code = partyCode.trim();
+    const name = partyName.trim();
+    if (!code) return setError("Party Code is required.");
+    if (!name) return setError("Party Name is required.");
+    if (existingCodes.includes(code))
+      return setError(`Party Code “${code}” already exists in the directory.`);
+    if (email.trim() && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim()))
+      return setError("Enter a valid email address.");
+
+    setSaving(true);
+    try {
+      const res = await fetch("/api/customers", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          party_code: code,
+          party_name: name,
+          gstin: gstin.trim(),
+          email: email.trim(),
+          phone: phone.trim(),
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || "Could not add customer");
+      onAdded(data.customer as Customer);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not add customer");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  const field =
+    "rounded-lg border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-brand-navy";
+
+  return (
+    <div className="mb-4 rounded-xl border border-brand-navy/30 bg-brand-navy/5 p-4">
+      <div className="mb-3 flex items-center justify-between">
+        <h2 className="text-sm font-semibold text-brand-slate">
+          Add a new customer
+        </h2>
+        <button
+          onClick={onCancel}
+          className="text-slate-400 hover:text-slate-600"
+          title="Cancel"
+        >
+          <X className="w-4 h-4" />
+        </button>
+      </div>
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+        <div className="flex flex-col gap-1">
+          <label className="text-[11px] uppercase tracking-wide text-slate-500">
+            Party Code *
+          </label>
+          <input
+            value={partyCode}
+            onChange={(e) => setPartyCode(e.target.value)}
+            placeholder="e.g. JHRAN000123"
+            className={field}
+          />
+        </div>
+        <div className="flex flex-col gap-1">
+          <label className="text-[11px] uppercase tracking-wide text-slate-500">
+            Party Name *
+          </label>
+          <input
+            value={partyName}
+            onChange={(e) => setPartyName(e.target.value)}
+            placeholder="e.g. NEW FASHION MART"
+            className={field}
+          />
+        </div>
+        <div className="flex flex-col gap-1">
+          <label className="text-[11px] uppercase tracking-wide text-slate-500">
+            GSTIN
+          </label>
+          <input
+            value={gstin}
+            onChange={(e) => setGstin(e.target.value)}
+            placeholder="optional"
+            className={field}
+          />
+        </div>
+        <div className="flex flex-col gap-1">
+          <label className="text-[11px] uppercase tracking-wide text-slate-500">
+            Email
+          </label>
+          <input
+            type="email"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            placeholder="add email…"
+            className={field}
+          />
+        </div>
+        <div className="flex flex-col gap-1">
+          <label className="text-[11px] uppercase tracking-wide text-slate-500">
+            Phone
+          </label>
+          <input
+            value={phone}
+            onChange={(e) => setPhone(e.target.value)}
+            placeholder="optional"
+            className={field}
+          />
+        </div>
+      </div>
+      {error && <p className="mt-3 text-xs text-red-600">{error}</p>}
+      <div className="mt-4 flex items-center gap-2">
+        <button
+          onClick={save}
+          disabled={saving}
+          className="inline-flex items-center gap-2 bg-brand-navy hover:bg-brand-navy-700 text-white rounded-lg px-4 py-2 text-sm font-medium disabled:opacity-60"
+        >
+          {saving ? (
+            <Loader2 className="w-4 h-4 animate-spin" />
+          ) : (
+            <Check className="w-4 h-4" />
+          )}
+          Save customer
+        </button>
+        <button
+          onClick={onCancel}
+          className="rounded-lg px-4 py-2 text-sm font-medium text-slate-600 hover:bg-slate-100"
+        >
+          Cancel
+        </button>
+      </div>
     </div>
   );
 }

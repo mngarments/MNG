@@ -1,6 +1,6 @@
 import { requireAuth } from "@/lib/auth/guard";
 import { getAdminClient } from "@/lib/supabase/admin";
-import { buildStatementHtml } from "@/lib/email/buildStatementHtml";
+import { buildStatementHtml, invoiceNumbersOf } from "@/lib/email/buildStatementHtml";
 import { buildStatementExcel } from "@/lib/email/buildStatementExcel";
 import { sendMail, SmtpAuthError, type MailAttachment } from "@/lib/email/mailer";
 import type { SalesRow } from "@/lib/csv/parseSalesReport";
@@ -81,9 +81,8 @@ export async function POST(req: Request) {
   }
 
   const appUrl = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
-  const subject = isReminder
-    ? `Reminder · Statement for ${statement.partyName}`
-    : `Your MN Garments statement · ${statement.partyName}`;
+  const docNos = invoiceNumbersOf(statement) || statement.partyCode;
+  const subject = `PT File Invoice No:${docNos}`;
 
   // 1) Insert a draft log to obtain the id needed for the tracking pixel.
   const { data: inserted, error: insertErr } = await supabase

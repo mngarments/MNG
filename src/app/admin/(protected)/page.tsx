@@ -1,7 +1,14 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Search, AlertCircle, FileWarning, Inbox } from "lucide-react";
+import {
+  Search,
+  AlertCircle,
+  FileWarning,
+  Inbox,
+  FileSpreadsheet,
+  RotateCcw,
+} from "lucide-react";
 import CsvDropzone from "@/components/admin/CsvDropzone";
 import StagingTable, { type SendState } from "@/components/admin/StagingTable";
 import PacingControls, {
@@ -173,6 +180,34 @@ export default function DispatchHubPage() {
     },
     [resume]
   );
+
+  // ---- Reset / re-upload a different file ----
+  const handleClearFile = useCallback(() => {
+    if (runningRef.current || queueState === "running" || queueState === "paused") {
+      alert(
+        "A dispatch is currently running. Cancel it before choosing a different file."
+      );
+      return;
+    }
+    if (
+      Object.keys(statusMap).length > 0 &&
+      !confirm(
+        "Discard the current file and upload a different one? Progress shown here will be cleared (already-sent statements are safe)."
+      )
+    ) {
+      return;
+    }
+    setStatements([]);
+    setRawByParty({});
+    setCsvFields([]);
+    setFilename(null);
+    setParseError(null);
+    setStatusMap({});
+    setBatchId(null);
+    batchIdRef.current = null;
+    setSearch("");
+    setFilter("all");
+  }, [queueState, statusMap]);
 
   // ---- Inline email save ----
   const handleSaveEmail = useCallback(
@@ -355,6 +390,31 @@ export default function DispatchHubPage() {
         <div className="grid grid-cols-1 xl:grid-cols-[1fr_320px] gap-6">
           {/* Left: staging */}
           <div className="space-y-4 min-w-0">
+            {/* Loaded-file bar with re-upload */}
+            <div className="flex items-center justify-between gap-3 rounded-xl border border-slate-200 bg-white p-3">
+              <div className="flex items-center gap-2 min-w-0">
+                <FileSpreadsheet className="w-5 h-5 shrink-0 text-brand-navy" />
+                <div className="min-w-0">
+                  <div className="truncate text-sm font-medium text-brand-slate">
+                    {filename ?? "Sales report loaded"}
+                  </div>
+                  <div className="text-xs text-slate-500">
+                    {totals.parties} part{totals.parties === 1 ? "y" : "ies"} ·{" "}
+                    {totals.invoices} invoice{totals.invoices === 1 ? "" : "s"}
+                  </div>
+                </div>
+              </div>
+              <button
+                onClick={handleClearFile}
+                disabled={queueState === "running" || queueState === "paused"}
+                className="flex shrink-0 items-center gap-1.5 rounded-lg border border-slate-200 px-3 py-2 text-xs font-medium text-slate-600 transition hover:border-brand-navy/50 hover:text-brand-navy disabled:cursor-not-allowed disabled:opacity-40"
+                title="Discard this file and upload a different one"
+              >
+                <RotateCcw className="w-3.5 h-3.5" />
+                Change file
+              </button>
+            </div>
+
             {/* Summary tiles */}
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
               <Tile label="Parties" value={String(totals.parties)} />
