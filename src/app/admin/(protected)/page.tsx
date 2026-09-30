@@ -20,7 +20,9 @@ import ResumeBanner from "@/components/admin/ResumeBanner";
 import PreviewEmailModal from "@/components/admin/PreviewEmailModal";
 import {
   parseSalesReport,
+  parseSalesReportXlsx,
   CsvSchemaError,
+  CorruptedCodesError,
   type SalesRow,
 } from "@/lib/csv/parseSalesReport";
 import { aggregateByParty, groupRowsByParty } from "@/lib/csv/aggregateByParty";
@@ -154,8 +156,10 @@ export default function DispatchHubPage() {
     async (file: File) => {
       setParseError(null);
       try {
-        const text = await file.text();
-        const { rows: parsed, fields } = parseSalesReport(text);
+        const isExcel = /\.xlsx?$/i.test(file.name);
+        const { rows: parsed, fields } = isExcel
+          ? parseSalesReportXlsx(await file.arrayBuffer())
+          : parseSalesReport(await file.text());
         const agg = aggregateByParty(parsed);
         setStatements(agg);
         setRawByParty(groupRowsByParty(parsed));
@@ -171,7 +175,11 @@ export default function DispatchHubPage() {
         setRawByParty({});
         setCsvFields([]);
         setFilename(file.name);
-        if (err instanceof CsvSchemaError) setParseError(err.message);
+        if (
+          err instanceof CsvSchemaError ||
+          err instanceof CorruptedCodesError
+        )
+          setParseError(err.message);
         else
           setParseError(
             err instanceof Error ? err.message : "Could not parse the file."

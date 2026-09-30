@@ -12,6 +12,8 @@ import {
   X,
 } from "lucide-react";
 import type { Customer } from "@/lib/types";
+import EmailsInput from "@/components/admin/EmailsInput";
+import { findInvalidEmail, joinEmails, splitEmails } from "@/lib/emails";
 
 export default function CustomersPage() {
   const [customers, setCustomers] = useState<Customer[]>([]);
@@ -19,6 +21,7 @@ export default function CustomersPage() {
   const [search, setSearch] = useState("");
   const [importMsg, setImportMsg] = useState<string | null>(null);
   const [importErr, setImportErr] = useState<string | null>(null);
+  const [importWarn, setImportWarn] = useState<string[]>([]);
   const [importing, setImporting] = useState(false);
   const [adding, setAdding] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
@@ -35,18 +38,25 @@ export default function CustomersPage() {
     });
   }
 
-  async function load() {
-    setLoading(true);
+  async function fetchCustomers(): Promise<Customer[] | null> {
     const res = await fetch("/api/customers");
-    if (res.ok) {
-      const { customers: list } = await res.json();
-      setCustomers(list);
-    }
-    setLoading(false);
+    if (!res.ok) return null;
+    const { customers: list } = await res.json();
+    return list;
   }
 
+  // Refresh the list in place (after an import).
+  async function load() {
+    const list = await fetchCustomers();
+    if (list) setCustomers(list);
+  }
+
+  // Initial load: `loading` starts true, so state is only set in the callback.
   useEffect(() => {
-    load();
+    fetchCustomers().then((list) => {
+      if (list) setCustomers(list);
+      setLoading(false);
+    });
   }, []);
 
   const filtered = useMemo(() => {
@@ -65,6 +75,7 @@ export default function CustomersPage() {
     setImporting(true);
     setImportMsg(null);
     setImportErr(null);
+    setImportWarn([]);
     try {
       const fd = new FormData();
       fd.append("file", file);
@@ -75,8 +86,22 @@ export default function CustomersPage() {
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Import failed");
       setImportMsg(
-        `Processed ${data.processed} rows · ${data.emailsProvided} with email. Existing records updated in place (no duplicates).`
+        `Processed ${data.processed} rows · ${data.emailsProvided} with email` +
+          (data.emailAddresses > data.emailsProvided
+            ? ` (${data.emailAddresses} addresses)`
+            : "") +
+          `. Existing records updated in place (no duplicates).`
       );
+      const warn: string[] = [...(data.notes ?? [])];
+      if (data.emailsProvided === 0) {
+        warn.unshift(
+          "No email addresses were found in this file. Check that the email column has the header “Email”."
+        );
+      }
+      if (data.ignoredColumns?.length) {
+        warn.push(`Ignored column(s): ${data.ignoredColumns.join(", ")}.`);
+      }
+      setImportWarn(warn);
       await load();
     } catch (err) {
       setImportErr(err instanceof Error ? err.message : "Import failed");
@@ -145,13 +170,25 @@ export default function CustomersPage() {
       <div className="rounded-lg border border-slate-200 bg-white p-3 mb-4 text-xs text-slate-500 flex items-start gap-2">
         <Download className="w-4 h-4 shrink-0 mt-0.5 text-brand-navy" />
         Upload a sheet with a <b className="mx-1">Party Code</b> column plus{" "}
-        <b className="mx-1">Email</b> / Phone / Name. Re-uploading updates
-        matching parties by code — it never creates duplicates.
+        <b className="mx-1">Email</b> / Phone / Name. For more than one email,
+        add columns like “Email 2” or separate them with commas in one cell.
+        Re-uploading updates matching parties by code — it never creates
+        duplicates.
       </div>
 
       {importMsg && (
         <div className="mb-4 rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-700">
           {importMsg}
+        </div>
+      )}
+      {importWarn.length > 0 && (
+        <div className="mb-4 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
+          {importWarn.map((w, i) => (
+            <div key={i} className="flex items-start gap-2">
+              <MailWarning className="w-4 h-4 shrink-0 mt-0.5" />
+              <span>{w}</span>
+            </div>
+          ))}
         </div>
       )}
       {importErr && (
@@ -219,7 +256,7 @@ function AddCustomerForm({
   const [partyCode, setPartyCode] = useState("");
   const [partyName, setPartyName] = useState("");
   const [gstin, setGstin] = useState("");
-  const [email, setEmail] = useState("");
+  const [emails, setEmails] = useState<string[]>([""]);
   const [phone, setPhone] = useState("");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -232,8 +269,9 @@ function AddCustomerForm({
     if (!name) return setError("Party Name is required.");
     if (existingCodes.includes(code))
       return setError(`Party Code “${code}” already exists in the directory.`);
-    if (email.trim() && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim()))
-      return setError("Enter a valid email address.");
+    const email = joinEmails(emails) ?? "";
+    const bad = findInvalidEmail(email);
+    if (bad) return setError(`“${bad}” is not a valid email address.`);
 
     setSaving(true);
     try {
@@ -244,7 +282,7 @@ function AddCustomerForm({
           party_code: code,
           party_name: name,
           gstin: gstin.trim(),
-          email: email.trim(),
+          email,
           phone: phone.trim(),
         }),
       });
@@ -313,12 +351,10 @@ function AddCustomerForm({
           <label className="text-[11px] uppercase tracking-wide text-slate-500">
             Email
           </label>
-          <input
-            type="email"
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            placeholder="add email…"
-            className={field}
+          <EmailsInput
+            value={emails}
+            onChange={setEmails}
+            inputClassName={`${field} flex-1 min-w-0`}
           />
         </div>
         <div className="flex flex-col gap-1">
@@ -365,12 +401,14 @@ function EditableRow({
   customer: Customer;
   onSaved: (c: Customer) => void;
 }) {
-  const [email, setEmail] = useState(customer.email ?? "");
+  const [emails, setEmails] = useState<string[]>(splitEmails(customer.email));
   const [phone, setPhone] = useState(customer.phone ?? "");
   const [saving, setSaving] = useState(false);
 
+  const email = joinEmails(emails) ?? "";
   const dirty =
-    email !== (customer.email ?? "") || phone !== (customer.phone ?? "");
+    email !== (joinEmails(splitEmails(customer.email)) ?? "") ||
+    phone !== (customer.phone ?? "");
 
   async function save() {
     setSaving(true);
@@ -388,6 +426,7 @@ function EditableRow({
       if (res.ok) {
         const { customer: updated } = await res.json();
         onSaved(updated);
+        setEmails(splitEmails(updated.email));
       } else {
         const d = await res.json().catch(() => ({}));
         alert(d.error || "Save failed");
@@ -409,16 +448,14 @@ function EditableRow({
         {customer.gstin ?? "—"}
       </td>
       <td className="px-4 py-2.5">
-        <div className="flex items-center gap-1.5">
+        <div className="flex items-start gap-1.5">
           {!customer.email && (
-            <MailWarning className="w-3.5 h-3.5 text-amber-500 shrink-0" />
+            <MailWarning className="w-3.5 h-3.5 text-amber-500 shrink-0 mt-1.5" />
           )}
-          <input
-            type="email"
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            placeholder="add email…"
-            className="w-52 rounded border border-slate-300 px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-brand-navy"
+          <EmailsInput
+            value={emails}
+            onChange={setEmails}
+            inputClassName="w-52 rounded border border-slate-300 px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-brand-navy"
           />
         </div>
       </td>

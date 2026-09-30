@@ -4,6 +4,7 @@ import { useState } from "react";
 import { Eye, Check, Loader2, MailWarning, CheckCircle2, XCircle, Clock, MinusCircle } from "lucide-react";
 import { inr } from "@/lib/format";
 import type { StagingRow } from "@/lib/types";
+import { splitEmails } from "@/lib/emails";
 
 export type SendState =
   | "pending"
@@ -65,7 +66,13 @@ function EmailCell({
   const [saving, setSaving] = useState(false);
 
   if (row.hasEmail) {
-    return <span className="text-sm text-slate-600">{row.email}</span>;
+    return (
+      <div className="flex flex-col text-sm text-slate-600">
+        {splitEmails(row.email).map((e) => (
+          <span key={e}>{e}</span>
+        ))}
+      </div>
+    );
   }
 
   return (
@@ -74,10 +81,10 @@ function EmailCell({
         <MailWarning className="w-3 h-3" /> Missing
       </span>
       <input
-        type="email"
         value={value}
         onChange={(e) => setValue(e.target.value)}
-        placeholder="add email…"
+        placeholder="email, another@…"
+        title="Separate multiple emails with commas"
         className="w-40 rounded border border-slate-300 px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-brand-navy"
       />
       <button

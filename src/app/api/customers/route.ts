@@ -1,5 +1,6 @@
 import { requireAuth } from "@/lib/auth/guard";
 import { getAdminClient } from "@/lib/supabase/admin";
+import { findInvalidEmail, joinEmails, splitEmails } from "@/lib/emails";
 
 export const dynamic = "force-dynamic";
 
@@ -42,10 +43,15 @@ export async function PATCH(req: Request) {
     return Response.json({ error: "party_code is required" }, { status: 400 });
   }
 
-  const email = body.email?.trim();
-  if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
-    return Response.json({ error: "Invalid email address" }, { status: 400 });
+  // `email` may hold several addresses separated by commas.
+  const badEmail = findInvalidEmail(body.email);
+  if (badEmail) {
+    return Response.json(
+      { error: `Invalid email address: ${badEmail}` },
+      { status: 400 }
+    );
   }
+  const email = joinEmails(splitEmails(body.email));
 
   const supabase = getAdminClient();
   const payload: Record<string, unknown> = {
@@ -53,7 +59,7 @@ export async function PATCH(req: Request) {
     updated_at: new Date().toISOString(),
   };
   if (body.party_name !== undefined) payload.party_name = body.party_name;
-  if (body.email !== undefined) payload.email = email || null;
+  if (body.email !== undefined) payload.email = email;
   if (body.phone !== undefined) payload.phone = body.phone?.trim() || null;
   if (body.gstin !== undefined) payload.gstin = body.gstin?.trim() || null;
 

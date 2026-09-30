@@ -1,5 +1,5 @@
 import * as XLSX from "xlsx";
-import type { SalesRow } from "@/lib/csv/parseSalesReport";
+import { CODE_COLUMNS, type SalesRow } from "@/lib/csv/parseSalesReport";
 
 export interface BuildExcelArgs {
   rows: SalesRow[];
@@ -38,6 +38,19 @@ export function buildStatementExcel({
   // header missing on a given row.
   const header = fields && fields.length ? fields : Object.keys(rows[0] ?? {});
   const sheet = XLSX.utils.json_to_sheet(rows, { header });
+
+  // Force code columns to Text so Excel never shows them as 8.9E+12.
+  CODE_COLUMNS.forEach((name) => {
+    const c = header.indexOf(name);
+    if (c < 0) return;
+    for (let r = 1; r <= rows.length; r++) {
+      const cell = sheet[XLSX.utils.encode_cell({ r, c })];
+      if (!cell) continue;
+      cell.t = "s";
+      cell.v = String(cell.v ?? "");
+      cell.z = "@";
+    }
+  });
 
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, sheet, "Statement");

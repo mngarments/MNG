@@ -43,7 +43,7 @@ export default function CsvDropzone({
       <input
         ref={inputRef}
         type="file"
-        accept=".csv,text/csv"
+        accept=".csv,text/csv,.xlsx,.xls"
         className="hidden"
         onChange={(e) => handleFiles(e.target.files)}
       />
@@ -59,7 +59,7 @@ export default function CsvDropzone({
         <div className="flex flex-col items-center gap-2">
           <UploadCloud className="w-9 h-9 text-brand-navy" />
           <div className="font-medium text-brand-slate">
-            Drop the “Sales Report — Detailed” CSV here
+            Drop the “Sales Report — Detailed” CSV or Excel file here
           </div>
           <div className="text-xs text-slate-500">
             or click to browse · grouped per party automatically

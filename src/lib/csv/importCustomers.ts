@@ -1,5 +1,6 @@
 import Papa from "papaparse";
 import * as XLSX from "xlsx";
+import { isValidEmail, joinEmails, splitEmails } from "@/lib/emails";
 
 export interface CustomerImportRow {
   party_code: string;
@@ -34,27 +35,42 @@ function normalizeKey(k: string): string {
   return k.toLowerCase().replace(/[\s_./-]/g, "");
 }
 
-function mapRow(raw: Record<string, unknown>): CustomerImportRow | null {
-  const out: Partial<CustomerImportRow> = {};
-  for (const [key, val] of Object.entries(raw)) {
-    const field = FIELD_ALIASES[normalizeKey(key)];
-    if (!field) continue;
-    const v = val == null ? "" : String(val).trim();
-    if (v) out[field] = v;
-  }
-  if (!out.party_code) return null;
-  return out as CustomerImportRow;
+// "Email 2", "Alternate Email", "Email ID1", "Mail2"… → extra email columns.
+function isEmailHeader(norm: string): boolean {
+  return /e?mail/.test(norm);
+}
+
+// SheetJS names blank header cells "__EMPTY", "__EMPTY_1"…
+function isBlankHeader(key: string): boolean {
+  return !key.trim() || /^__EMPTY(_\d+)?$/.test(key);
+}
+
+function looksLikeEmails(v: string): boolean {
+  const list = splitEmails(v);
+  return list.length > 0 && list.every(isValidEmail);
+}
+
+export interface CustomerImportResult {
+  rows: CustomerImportRow[];
+  /** Human-readable notes about how the file's columns were interpreted. */
+  notes: string[];
+  /** Columns that were neither recognised nor auto-detected. */
+  ignoredColumns: string[];
 }
 
 /**
  * Parse an uploaded customer-directory file (CSV or Excel) into normalized rows.
  * De-duplicates by party_code (last occurrence wins) so a single upload is
  * internally consistent; the DB upsert then makes re-uploads idempotent.
+ *
+ * Emails are collected from every email-like column (Email, Email 2, Alt
+ * Email…), plus any column without a recognised header whose values are
+ * email addresses — so a forgotten "Email" header doesn't silently drop them.
  */
 export function parseCustomerImport(
   buffer: Buffer,
   filename: string
-): CustomerImportRow[] {
+): CustomerImportResult {
   const lower = filename.toLowerCase();
   let records: Record<string, unknown>[] = [];
 
@@ -69,17 +85,61 @@ export function parseCustomerImport(
     const parsed = Papa.parse<Record<string, unknown>>(text, {
       header: true,
       skipEmptyLines: "greedy",
-      transformHeader: (h) => h.trim(),
+      transformHeader: (h, i) => h.trim() || `__EMPTY_${i}`,
     });
     records = parsed.data;
   }
 
+  const str = (v: unknown) => (v == null ? "" : String(v).trim());
+
+  // Classify each column once.
+  const keys = Array.from(new Set(records.flatMap((r) => Object.keys(r))));
+  const fieldOf = new Map<string, keyof CustomerImportRow>();
+  const emailCols: string[] = [];
+  const notes: string[] = [];
+  const ignoredColumns: string[] = [];
+
+  keys.forEach((key) => {
+    const norm = normalizeKey(key);
+    const alias = FIELD_ALIASES[norm];
+    if (alias === "email" || (!alias && isEmailHeader(norm))) {
+      emailCols.push(key);
+      return;
+    }
+    if (alias) {
+      fieldOf.set(key, alias);
+      return;
+    }
+    // Unrecognised / unlabeled column: adopt it as email if its values are.
+    const values = records.map((r) => str(r[key])).filter(Boolean);
+    const emailish = values.filter(looksLikeEmails).length;
+    const label = isBlankHeader(key) ? "A column with no header" : `Column “${key}”`;
+    if (values.length > 0 && emailish / values.length >= 0.6) {
+      emailCols.push(key);
+      notes.push(
+        `${label} contains email addresses — imported as Email. Label it “Email” to be safe.`
+      );
+    } else if (values.length > 0) {
+      ignoredColumns.push(isBlankHeader(key) ? "(unlabeled column)" : key);
+    }
+  });
+
   const byCode = new Map<string, CustomerImportRow>();
   for (const raw of records) {
-    const mapped = mapRow(raw);
-    if (!mapped) continue;
-    const existing = byCode.get(mapped.party_code);
-    byCode.set(mapped.party_code, { ...existing, ...mapped });
+    const out: Partial<CustomerImportRow> = {};
+    for (const [key, field] of fieldOf) {
+      const v = str(raw[key]);
+      if (v) out[field] = v;
+    }
+    const emails = emailCols.flatMap((k) =>
+      splitEmails(str(raw[k])).filter(isValidEmail)
+    );
+    const email = joinEmails(emails);
+    if (email) out.email = email;
+    if (!out.party_code) continue;
+
+    const existing = byCode.get(out.party_code);
+    byCode.set(out.party_code, { ...existing, ...(out as CustomerImportRow) });
   }
-  return Array.from(byCode.values());
+  return { rows: Array.from(byCode.values()), notes, ignoredColumns };
 }

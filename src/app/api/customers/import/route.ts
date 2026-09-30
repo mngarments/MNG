@@ -15,15 +15,16 @@ export async function POST(req: Request) {
     return Response.json({ error: "No file uploaded" }, { status: 400 });
   }
 
-  let rows;
+  let parsed;
   try {
     const buffer = Buffer.from(await file.arrayBuffer());
-    rows = parseCustomerImport(buffer, file.name);
+    parsed = parseCustomerImport(buffer, file.name);
   } catch (err) {
     const message = err instanceof Error ? err.message : "Could not parse file";
     return Response.json({ error: message }, { status: 400 });
   }
 
+  const { rows, notes, ignoredColumns } = parsed;
   if (rows.length === 0) {
     return Response.json(
       {
@@ -76,5 +77,11 @@ export async function POST(req: Request) {
     processed: rows.length,
     upserted: count ?? rows.length,
     emailsProvided: withEmail,
+    emailAddresses: rows.reduce(
+      (n, r) => n + (r.email ? r.email.split(",").length : 0),
+      0
+    ),
+    notes,
+    ignoredColumns,
   });
 }

@@ -5,6 +5,7 @@ import { buildStatementExcel } from "@/lib/email/buildStatementExcel";
 import { sendMail, SmtpAuthError, type MailAttachment } from "@/lib/email/mailer";
 import type { SalesRow } from "@/lib/csv/parseSalesReport";
 import type { PartyStatement } from "@/lib/types";
+import { findInvalidEmail, joinEmails, splitEmails } from "@/lib/emails";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 30;
@@ -44,18 +45,28 @@ export async function POST(req: Request) {
 
   const {
     statement,
-    email,
+    email: rawEmail,
     batchId = null,
     isReminder = false,
     rows,
     fields = [],
   } = body;
-  if (!statement?.partyCode || !email) {
+  if (!statement?.partyCode || !rawEmail?.trim()) {
     return Response.json(
       { error: "Missing statement or recipient email" },
       { status: 400 }
     );
   }
+
+  // A party may have several addresses ("a@x.com, b@y.com"); send to all.
+  const badEmail = findInvalidEmail(rawEmail);
+  if (badEmail) {
+    return Response.json(
+      { error: `Invalid recipient email: ${badEmail}` },
+      { status: 400 }
+    );
+  }
+  const email = joinEmails(splitEmails(rawEmail))!;
 
   const supabase = getAdminClient();
 
