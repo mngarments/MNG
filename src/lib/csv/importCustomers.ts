@@ -77,8 +77,11 @@ export function parseCustomerImport(
   if (lower.endsWith(".xlsx") || lower.endsWith(".xls")) {
     const wb = XLSX.read(buffer, { type: "buffer" });
     const sheet = wb.Sheets[wb.SheetNames[0]];
+    // raw: false → the cell's displayed text, so a code shown as "00123"
+    // keeps its leading zeros and never becomes 123 or 1.23E+4.
     records = XLSX.utils.sheet_to_json<Record<string, unknown>>(sheet, {
       defval: "",
+      raw: false,
     });
   } else {
     const text = buffer.toString("utf8");
@@ -90,7 +93,8 @@ export function parseCustomerImport(
     records = parsed.data;
   }
 
-  const str = (v: unknown) => (v == null ? "" : String(v).trim());
+  const str = (v: unknown) =>
+    v == null ? "" : String(v).replace(/\u00a0/g, " ").trim();
 
   // Classify each column once.
   const keys = Array.from(new Set(records.flatMap((r) => Object.keys(r))));
@@ -142,4 +146,17 @@ export function parseCustomerImport(
     byCode.set(out.party_code, { ...existing, ...(out as CustomerImportRow) });
   }
   return { rows: Array.from(byCode.values()), notes, ignoredColumns };
+}
+
+/**
+ * Loose key for matching a party code from an uploaded sheet to the one
+ * stored in the DB: case, spaces/punctuation and leading zeros are ignored,
+ * so "mn-0042 ", "MN0042" and "MN42" all match the same party.
+ */
+export function partyCodeKey(code: string): string {
+  return code
+    .toUpperCase()
+    .replace(/[^A-Z0-9]/g, "")
+    .replace(/^0+(?=\d)/, "")
+    .replace(/([A-Z])0+(?=\d)/g, "$1");
 }

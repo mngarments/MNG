@@ -1,6 +1,6 @@
 import { requireAuth } from "@/lib/auth/guard";
 import { getAdminClient } from "@/lib/supabase/admin";
-import { parseCustomerImport } from "@/lib/csv/importCustomers";
+import { parseCustomerImport, partyCodeKey } from "@/lib/csv/importCustomers";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 30;
@@ -41,27 +41,37 @@ export async function POST(req: Request) {
   // so a partial contact sheet never wipes existing data.
   const now = new Date().toISOString();
 
-  // Fetch existing names so inserts satisfy NOT NULL party_name.
-  const codes = rows.map((r) => r.party_code);
-  const { data: existing } = await supabase
+  // Match each sheet code to an existing party loosely (case, spaces, leading
+  // zeros), so a code formatted differently in Excel updates that party
+  // instead of silently inserting a near-duplicate that nothing reads.
+  const { data: existing, error: loadError } = await supabase
     .from("customers")
-    .select("party_code,party_name")
-    .in("party_code", codes);
-  const nameByCode = new Map(
-    (existing ?? []).map((c) => [c.party_code, c.party_name])
+    .select("party_code,party_name");
+  if (loadError) {
+    return Response.json({ error: loadError.message }, { status: 500 });
+  }
+  const byKey = new Map(
+    (existing ?? []).map((c) => [partyCodeKey(c.party_code), c])
   );
 
-  const payload = rows.map((r) => {
+  const unmatched: string[] = [];
+  const merged = new Map<string, Record<string, unknown>>();
+  for (const r of rows) {
+    const match = byKey.get(partyCodeKey(r.party_code));
+    if (!match) unmatched.push(r.party_code);
+    const code = match?.party_code ?? r.party_code;
     const rec: Record<string, unknown> = {
-      party_code: r.party_code,
-      party_name: r.party_name ?? nameByCode.get(r.party_code) ?? r.party_code,
+      ...merged.get(code),
+      party_code: code,
+      party_name: r.party_name ?? match?.party_name ?? r.party_code,
       updated_at: now,
     };
     if (r.email !== undefined) rec.email = r.email;
     if (r.phone !== undefined) rec.phone = r.phone;
     if (r.gstin !== undefined) rec.gstin = r.gstin;
-    return rec;
-  });
+    merged.set(code, rec);
+  }
+  const payload = Array.from(merged.values());
 
   const { error, count } = await supabase
     .from("customers")
@@ -75,7 +85,10 @@ export async function POST(req: Request) {
   return Response.json({
     ok: true,
     processed: rows.length,
-    upserted: count ?? rows.length,
+    upserted: count ?? payload.length,
+    updated: payload.length - unmatched.length,
+    created: unmatched.length,
+    unmatchedCodes: unmatched.slice(0, 20),
     emailsProvided: withEmail,
     emailAddresses: rows.reduce(
       (n, r) => n + (r.email ? r.email.split(",").length : 0),

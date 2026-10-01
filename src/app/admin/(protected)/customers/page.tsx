@@ -90,12 +90,20 @@ export default function CustomersPage() {
           (data.emailAddresses > data.emailsProvided
             ? ` (${data.emailAddresses} addresses)`
             : "") +
-          `. Existing records updated in place (no duplicates).`
+          `. Updated ${data.updated ?? data.processed} existing part${(data.updated ?? data.processed) === 1 ? "y" : "ies"}` +
+          (data.created ? `, added ${data.created} new.` : ".")
       );
       const warn: string[] = [...(data.notes ?? [])];
       if (data.emailsProvided === 0) {
         warn.unshift(
           "No email addresses were found in this file. Check that the email column has the header “Email”."
+        );
+      }
+      if (data.created > 0) {
+        warn.push(
+          `${data.created} Party Code(s) didn't match any existing party and were added as new: ` +
+            `${(data.unmatchedCodes ?? []).join(", ")}${data.created > (data.unmatchedCodes ?? []).length ? "…" : ""}. ` +
+            `If these are existing parties, check the codes in your sheet.`
         );
       }
       if (data.ignoredColumns?.length) {
@@ -172,8 +180,8 @@ export default function CustomersPage() {
         Upload a sheet with a <b className="mx-1">Party Code</b> column plus{" "}
         <b className="mx-1">Email</b> / Phone / Name. For more than one email,
         add columns like “Email 2” or separate them with commas in one cell.
-        Re-uploading updates matching parties by code — it never creates
-        duplicates.
+        Re-uploading updates matching parties by code (case, spaces and
+        leading zeros don&apos;t matter); unknown codes are added as new.
       </div>
 
       {importMsg && (
