@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import Image from "next/image";
+import LoadError, { describeFailure } from "@/components/admin/LoadError";
 import {
   Plus,
   Pencil,
@@ -46,15 +47,23 @@ type Item = Record<string, unknown> & { id: string };
 export default function CrudManager({ config }: { config: CrudConfig }) {
   const [items, setItems] = useState<Item[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [editing, setEditing] = useState<Item | null>(null);
   const [showForm, setShowForm] = useState(false);
 
   async function load() {
     setLoading(true);
-    const res = await fetch(config.endpoint);
-    if (res.ok) {
-      const data = await res.json();
-      setItems(data[config.collectionKey] ?? []);
+    setLoadError(null);
+    try {
+      const res = await fetch(config.endpoint);
+      if (res.ok) {
+        const data = await res.json();
+        setItems(data[config.collectionKey] ?? []);
+      } else {
+        setLoadError(await describeFailure(res));
+      }
+    } catch (err) {
+      setLoadError(await describeFailure(null, err));
     }
     setLoading(false);
   }
@@ -75,6 +84,7 @@ export default function CrudManager({ config }: { config: CrudConfig }) {
 
   return (
     <div>
+      <LoadError message={loadError} />
       <div className="flex items-center justify-between mb-4">
         <div>
           <h2 className="text-lg font-semibold text-brand-slate">

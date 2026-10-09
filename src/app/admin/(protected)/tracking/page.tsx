@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import LoadError, { describeFailure } from "@/components/admin/LoadError";
 import {
   RefreshCw,
   BellRing,
@@ -20,6 +21,7 @@ export default function TrackingPage() {
   const [logs, setLogs] = useState<EmailLog[]>([]);
   const [customers, setCustomers] = useState<Record<string, Customer>>({});
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [reminding, setReminding] = useState(false);
   const [reminderProgress, setReminderProgress] = useState<{
     done: number;
@@ -28,16 +30,24 @@ export default function TrackingPage() {
 
   async function load() {
     setLoading(true);
-    const [lRes, cRes] = await Promise.all([
-      fetch("/api/logs"),
-      fetch("/api/customers"),
-    ]);
-    if (lRes.ok) setLogs((await lRes.json()).logs);
-    if (cRes.ok) {
-      const { customers: list } = await cRes.json();
-      const map: Record<string, Customer> = {};
-      for (const c of list as Customer[]) map[c.party_code] = c;
-      setCustomers(map);
+    setLoadError(null);
+    try {
+      const [lRes, cRes] = await Promise.all([
+        fetch("/api/logs"),
+        fetch("/api/customers"),
+      ]);
+      if (lRes.ok) setLogs((await lRes.json()).logs);
+      else setLoadError(await describeFailure(lRes));
+      if (cRes.ok) {
+        const { customers: list } = await cRes.json();
+        const map: Record<string, Customer> = {};
+        for (const c of list as Customer[]) map[c.party_code] = c;
+        setCustomers(map);
+      } else {
+        setLoadError(await describeFailure(cRes));
+      }
+    } catch (err) {
+      setLoadError(await describeFailure(null, err));
     }
     setLoading(false);
   }
@@ -123,6 +133,7 @@ export default function TrackingPage() {
 
   return (
     <div className="p-6 lg:p-8 max-w-[1200px]">
+      <LoadError message={loadError} />
       <header className="mb-6 flex items-start justify-between gap-4 flex-wrap">
         <div>
           <h1 className="text-2xl font-bold text-brand-slate">

@@ -10,6 +10,7 @@ import {
   RotateCcw,
 } from "lucide-react";
 import CsvDropzone from "@/components/admin/CsvDropzone";
+import LoadError, { describeFailure } from "@/components/admin/LoadError";
 import StagingTable, { type SendState } from "@/components/admin/StagingTable";
 import PacingControls, {
   type Throttle,
@@ -62,6 +63,7 @@ export default function DispatchHubPage() {
   // Control refs for the async send loop.
   const pausedRef = useRef(false);
   const cancelledRef = useRef(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const runningRef = useRef(false);
   const throttleRef = useRef<Throttle>(3);
   const batchIdRef = useRef<string | null>(null);
@@ -83,7 +85,10 @@ export default function DispatchHubPage() {
           const map: Record<string, Customer> = {};
           for (const c of list as Customer[]) map[c.party_code] = c;
           setCustomers(map);
+        } else {
+          setLoadError(await describeFailure(cRes));
         }
+        if (!bRes.ok) setLoadError(await describeFailure(bRes));
         if (bRes.ok) {
           const data = await bRes.json();
           setSentToday(data.sentToday ?? 0);
@@ -94,8 +99,8 @@ export default function DispatchHubPage() {
             });
           }
         }
-      } catch {
-        /* ignore — surfaced on first action */
+      } catch (err) {
+        setLoadError(await describeFailure(null, err));
       }
     })();
   }, []);
@@ -374,6 +379,7 @@ export default function DispatchHubPage() {
 
   return (
     <div className="p-6 lg:p-8 max-w-[1400px]">
+      <LoadError message={loadError} />
       <header className="mb-6">
         <h1 className="text-2xl font-bold text-brand-slate">
           Billing Dispatch Hub

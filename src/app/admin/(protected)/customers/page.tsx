@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import LoadError, { describeFailure } from "@/components/admin/LoadError";
 import {
   Upload,
   Search,
@@ -18,6 +19,7 @@ import { findInvalidEmail, joinEmails, splitEmails } from "@/lib/emails";
 export default function CustomersPage() {
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [search, setSearch] = useState("");
   const [importMsg, setImportMsg] = useState<string | null>(null);
   const [importErr, setImportErr] = useState<string | null>(null);
@@ -38,22 +40,31 @@ export default function CustomersPage() {
     });
   }
 
-  async function fetchCustomers(): Promise<Customer[] | null> {
-    const res = await fetch("/api/customers");
-    if (!res.ok) return null;
-    const { customers: list } = await res.json();
-    return list;
+  async function fetchCustomers(): Promise<{
+    list: Customer[] | null;
+    error: string | null;
+  }> {
+    try {
+      const res = await fetch("/api/customers");
+      if (!res.ok) return { list: null, error: await describeFailure(res) };
+      const { customers: list } = await res.json();
+      return { list, error: null };
+    } catch (err) {
+      return { list: null, error: await describeFailure(null, err) };
+    }
   }
 
   // Refresh the list in place (after an import).
   async function load() {
-    const list = await fetchCustomers();
+    const { list, error } = await fetchCustomers();
+    setLoadError(error);
     if (list) setCustomers(list);
   }
 
   // Initial load: `loading` starts true, so state is only set in the callback.
   useEffect(() => {
-    fetchCustomers().then((list) => {
+    fetchCustomers().then(({ list, error }) => {
+      setLoadError(error);
       if (list) setCustomers(list);
       setLoading(false);
     });
@@ -120,6 +131,7 @@ export default function CustomersPage() {
 
   return (
     <div className="p-6 lg:p-8 max-w-[1100px]">
+      <LoadError message={loadError} />
       <header className="mb-6 flex items-start justify-between gap-4 flex-wrap">
         <div>
           <h1 className="text-2xl font-bold text-brand-slate">
