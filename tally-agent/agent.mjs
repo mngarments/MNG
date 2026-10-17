@@ -1,22 +1,39 @@
 // MNG Tally agent. Runs on the client's Tally server.
 //
 //   node agent.mjs doctor        check Tally + MNG connectivity; prints counts only
-//   node agent.mjs sync          incremental sync (or full, when one is due)
-//   node agent.mjs sync --full   force a full sync
+//   node agent.mjs tick          scheduled check-in (every 5 min): syncs if the
+//                                schedule set in the MNG portal says so
+//   node agent.mjs sync          sync now (incremental, or full if never done)
+//   node agent.mjs sync --full   full sync now
 //
 // Config: config.json next to this file (see config.example.json), or env
 // vars MNG_URL, TALLY_SYNC_SECRET, TALLY_URL, TALLY_COMPANY.
 
-import { appendFileSync, existsSync, readFileSync, renameSync, statSync, writeFileSync } from "node:fs";
+import {
+  appendFileSync,
+  closeSync,
+  existsSync,
+  openSync,
+  readFileSync,
+  renameSync,
+  statSync,
+  unlinkSync,
+  writeFileSync,
+} from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { createMng } from "./lib/mng.mjs";
+import { decide, needsFull } from "./lib/schedule.mjs";
 import { addDays, createTally, normalizeVoucher } from "./lib/tally.mjs";
+import { childText } from "./lib/xml.mjs";
 
-const VERSION = "0.2.0";
+const VERSION = "0.3.0";
 const DIR = path.dirname(fileURLToPath(import.meta.url));
 const STATE_FILE = path.join(DIR, "state.json");
 const LOG_FILE = path.join(DIR, "agent.log");
+const LOCK_FILE = path.join(DIR, "sync.lock");
+// A lock older than this is left over from a crashed run.
+const STALE_LOCK_MS = 3 * 3_600_000;
 
 const [command = "help", ...flags] = process.argv.slice(2);
 
@@ -30,7 +47,6 @@ function loadConfig() {
     syncSecret: process.env.TALLY_SYNC_SECRET || json.syncSecret || "",
     tallyUrl: process.env.TALLY_URL || json.tallyUrl || "http://localhost:9000",
     company: process.env.TALLY_COMPANY || json.company || "",
-    fullSyncEveryHours: Number(json.fullSyncEveryHours) || 24,
   };
 }
 
@@ -114,30 +130,80 @@ function monthWindows(from, to) {
 
 // --- Commands ------------------------------------------------------------------------
 
-async function sync() {
-  const config = loadConfig();
+function requireMngConfig(config) {
   if (!config.mngUrl || !config.syncSecret) {
     throw new Error("mngUrl and syncSecret must be set in config.json.");
   }
+}
+
+/** Run `fn` holding sync.lock, so a manual sync and a scheduled one never overlap. */
+async function withLock(fn) {
+  try {
+    if (existsSync(LOCK_FILE) && Date.now() - statSync(LOCK_FILE).mtimeMs > STALE_LOCK_MS) {
+      unlinkSync(LOCK_FILE);
+    }
+    closeSync(openSync(LOCK_FILE, "wx"));
+  } catch (err) {
+    if (err.code === "EEXIST") {
+      console.log("Another sync is already running; skipping.");
+      return;
+    }
+    throw err;
+  }
+  try {
+    return await fn();
+  } finally {
+    try {
+      unlinkSync(LOCK_FILE);
+    } catch {
+      // Already gone.
+    }
+  }
+}
+
+/** Manual sync from the command line. */
+async function sync() {
+  const config = loadConfig();
+  requireMngConfig(config);
+  const full = flags.includes("--full") || needsFull(loadState());
+  await withLock(() => runSync(config, full ? "full" : "incremental", "run by hand"));
+}
+
+/** Scheduled check-in: report in, fetch the portal's schedule, sync if due. */
+async function tick() {
+  const config = loadConfig();
+  requireMngConfig(config);
+  const { settings } = await createMng(config).config(VERSION);
+  const decision = decide(settings, loadState());
+  if (!decision) return;
+  await withLock(() => runSync(config, decision.kind, decision.reason));
+}
+
+async function runSync(config, requestedKind, reason) {
   const tally = createTally(config.tallyUrl);
   const mng = createMng(config);
   const state = loadState();
 
+  // If Tally is closed this throws before anything is recorded, so a scheduled
+  // full sync is retried on the next check-in.
   const company = await resolveCompany(tally, config.company);
+  let kind = requestedKind;
   if (state.company && state.company !== company.name) {
     log(`Company changed from "${state.company}" to "${company.name}"; doing a full sync.`);
+    kind = "full";
   }
-  const fullDue =
-    flags.includes("--full") ||
-    state.company !== company.name ||
-    state.lastAlterId == null ||
-    !state.lastFullAt ||
-    Date.now() - Date.parse(state.lastFullAt) > config.fullSyncEveryHours * 3_600_000;
-  const kind = fullDue ? "full" : "incremental";
+  const fullDue = kind === "full";
+
+  const startedIso = new Date().toISOString();
+  saveState({
+    ...state,
+    lastRunStartedAt: startedIso,
+    ...(fullDue ? { lastFullStartedAt: startedIso } : {}),
+  });
 
   const started = Date.now();
   const runId = await mng.start(kind, company.name, VERSION);
-  log(`Run ${runId}: ${kind} sync of "${company.name}"`);
+  log(`Run ${runId}: ${kind} sync of "${company.name}" (${reason})`);
 
   const counts = { ledgers: 0, vouchers: 0, vouchers_skipped: 0 };
   try {
@@ -150,14 +216,15 @@ async function sync() {
     const horizon = addDays(today(), 366); // post-dated vouchers
     const windows = fullDue ? monthWindows(booksFrom, horizon) : [[booksFrom, horizon]];
     const afterAlterId = fullDue ? null : state.lastAlterId;
-    let maxAlterId = state.lastAlterId ?? 0;
+    let maxAlterId = fullDue ? 0 : (state.lastAlterId ?? 0);
 
     for (const [from, to] of windows) {
       const nodes = await tally.vouchers(company.name, from, to, afterAlterId);
       const rows = [];
       for (const node of nodes) {
+        const alterId = Number.parseInt(childText(node, "ALTERID"), 10);
+        if (Number.isFinite(alterId)) maxAlterId = Math.max(maxAlterId, alterId);
         const v = normalizeVoucher(node, index, { keepEmpty: !fullDue });
-        if (v?.alter_id != null) maxAlterId = Math.max(maxAlterId, v.alter_id);
         if (v && v.guid && v.date) rows.push(v);
         else counts.vouchers_skipped++;
       }
@@ -171,11 +238,10 @@ async function sync() {
     counts.seconds = Math.round((Date.now() - started) / 1000);
     const result = await mng.finish(runId, "success", counts);
     saveState({
-      ...state,
+      ...loadState(),
       company: company.name,
       lastAlterId: maxAlterId,
-      lastRunAt: new Date().toISOString(),
-      ...(fullDue ? { lastFullAt: new Date().toISOString() } : {}),
+      ...(fullDue ? { lastFullSuccessAt: new Date().toISOString() } : {}),
     });
     log(
       `Run ${runId}: done in ${counts.seconds}s` +
@@ -261,9 +327,9 @@ async function doctor() {
 
 // --- Entry ----------------------------------------------------------------------------
 
-const commands = { sync, doctor };
+const commands = { sync, tick, doctor };
 if (!commands[command]) {
-  console.log("Usage: node agent.mjs doctor | sync [--full]");
+  console.log("Usage: node agent.mjs doctor | tick | sync [--full]");
   process.exit(command === "help" ? 0 : 1);
 }
 commands[command]().catch((err) => {

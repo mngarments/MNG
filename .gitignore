@@ -44,3 +44,4 @@ next-env.d.ts
 /tally-agent/config.json
 /tally-agent/state.json
 /tally-agent/agent.log*
+/tally-agent/sync.lock

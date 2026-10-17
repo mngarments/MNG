@@ -16,8 +16,9 @@ import {
   Clock,
 } from "lucide-react";
 import { inr, drCr, safeDate, dateTime } from "@/lib/format";
-import { STALE_AFTER_HOURS } from "@/lib/tally/queries";
-import type { TallyParty, TallySyncRun } from "@/lib/types";
+import TallySchedule from "@/components/admin/TallySchedule";
+import { syncHealth } from "@/lib/tally/schedule";
+import type { TallyAgentSettings, TallyParty, TallySyncRun } from "@/lib/types";
 
 type Filter = "outstanding" | "overdue" | "mismatch" | "all";
 
@@ -30,6 +31,7 @@ export default function TallyPage() {
   const [parties, setParties] = useState<TallyParty[]>([]);
   const [runs, setRuns] = useState<TallySyncRun[]>([]);
   const [lastSuccess, setLastSuccess] = useState<TallySyncRun | null>(null);
+  const [settings, setSettings] = useState<TallyAgentSettings | null>(null);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [query, setQuery] = useState("");
@@ -52,6 +54,7 @@ export default function TallyPage() {
       setParties(result.json.parties);
       setRuns(result.json.runs);
       setLastSuccess(result.json.lastSuccess);
+      setSettings(result.json.settings);
     }
     setLoadError(result.error ?? null);
     setLoadedAt(Date.now());
@@ -120,7 +123,10 @@ export default function TallyPage() {
       </header>
 
       <LoadError message={loadError} />
-      {!loading && !loadError && <SyncStatus runs={runs} lastSuccess={lastSuccess} now={loadedAt} />}
+      {!loading && !loadError && (
+        <SyncStatus runs={runs} lastSuccess={lastSuccess} settings={settings} now={loadedAt} />
+      )}
+      {settings && <TallySchedule settings={settings} onChange={setSettings} />}
 
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-6">
         <Stat label="Total receivable" value={inr(totals.outstanding, false)} icon={Wallet} />
@@ -250,10 +256,12 @@ export default function TallyPage() {
 function SyncStatus({
   runs,
   lastSuccess,
+  settings,
   now,
 }: {
   runs: TallySyncRun[];
   lastSuccess: TallySyncRun | null;
+  settings: TallyAgentSettings | null;
   now: number;
 }) {
   const latest = runs[0];
@@ -267,17 +275,13 @@ function SyncStatus({
     );
   }
 
-  const ageHours = lastSuccess
-    ? (now - new Date(lastSuccess.finished_at ?? lastSuccess.started_at).getTime()) / 3_600_000
-    : Infinity;
-  const stale = ageHours > STALE_AFTER_HOURS;
+  const health = syncHealth(settings, lastSuccess, now);
+  const warn = health.level === "warn" || latest.status === "failed";
 
   return (
     <div
       className={`mb-4 rounded-lg border p-3 text-sm ${
-        stale || latest.status === "failed"
-          ? "border-amber-200 bg-amber-50 text-amber-800"
-          : "border-slate-200 bg-white text-slate-600"
+        warn ? "border-amber-200 bg-amber-50 text-amber-800" : "border-slate-200 bg-white text-slate-600"
       }`}
     >
       <div className="flex items-center gap-2 flex-wrap">
@@ -301,13 +305,7 @@ function SyncStatus({
       {latest.status === "failed" && latest.error && (
         <div className="mt-1 text-xs text-red-700">{latest.error}</div>
       )}
-      {stale && (
-        <div className="mt-1 text-xs">
-          {lastSuccess
-            ? `No successful sync for ${Math.floor(ageHours)} hours — these numbers may be out of date. Check that Tally and the agent are running on the server.`
-            : "No sync has completed successfully yet, so these numbers may be incomplete."}
-        </div>
-      )}
+      {health.message && <div className="mt-1 text-xs">{health.message}</div>}
     </div>
   );
 }

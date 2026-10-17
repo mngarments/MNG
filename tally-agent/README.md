@@ -1,6 +1,6 @@
 # MNG Tally agent
 
-A small program that runs on the Windows server hosting TallyPrime. Every 15 minutes it reads party ledgers, bill-wise outstandings and vouchers from Tally's local XML server (port 9000) and pushes them to MNG over outbound HTTPS. Tally is never exposed to the internet, and the agent only ever *reads* from Tally.
+A small program that runs on the Windows server hosting TallyPrime. On the schedule set in the MNG portal, it reads party ledgers, bill-wise outstandings and vouchers from Tally's local XML server (port 9000) and pushes them to MNG over outbound HTTPS. Tally is never exposed to the internet, and the agent only ever *reads* from Tally.
 
 It has no dependencies: copy this folder and run it with Node.js. There's no `npm install`.
 
@@ -18,16 +18,22 @@ It has no dependencies: copy this folder and run it with Node.js. There's no `np
    ```
    It checks Tally, the company, and the connection to MNG. It prints counts and percentages only, no party details, so its output is safe to send to the developer.
 5. **First sync:** run `node agent.mjs sync`. The first run is a full sync of every voucher since the books began, so it can take several minutes.
-6. **Schedule:** from an *Administrator* PowerShell in the folder, run:
+6. **Schedule:** from an *Administrator* PowerShell in the folder, run the command below. Then set the sync times in the portal.
    ```powershell
    powershell -ExecutionPolicy Bypass -File .\install-task.ps1
    ```
 
 ## How it syncs
 
-- **Ledgers and opening bills:** a full snapshot of Sundry Debtors (including subgroups) on every run.
-- **Vouchers:** only those whose AlterID is above the last one synced, so edits and new entries arrive within 15 minutes.
-- **Full sync** every 24 hours, month by month: catches vouchers that were *deleted* in Tally. Run `node agent.mjs sync --full` to force one.
-- Progress goes to `agent.log`, and the last position is kept in `state.json`. Deleting `state.json` forces a full sync.
+The scheduled task runs `node agent.mjs tick` every 5 minutes. Each tick checks in with MNG and fetches the schedule set in the portal under **Tally Accounts → Sync schedule** (India time). Changes there apply within about 5 minutes. The agent then decides whether to sync:
+
+- **Incremental sync:** runs every *N* minutes, only within the sync hours if those are set. It fetches only vouchers whose AlterID is above the last one synced, plus a fresh snapshot of Sundry Debtors ledgers and opening bills.
+- **Full sync:** runs once a day at the set time, month by month, and catches vouchers *deleted* in Tally. If Tally is closed at that time, the agent retries on each tick for 3 hours, then waits until the next day.
+- **Sync now / Full sync now** in the portal start on the next tick, even when automatic sync is off.
+
+Other details:
+- `node agent.mjs sync` (add `--full` for a full sync) syncs immediately by hand.
+- A lock file stops a manual sync and a scheduled one from overlapping.
+- Progress goes to `agent.log`, and the sync position is kept in `state.json`. Deleting `state.json` makes the next sync a full one.
 
 In MNG's **Tally Accounts** page, a *Balance mismatch* means Tally's closing balance for a party differs from the total of the synced vouchers. That points to a data problem worth investigating.

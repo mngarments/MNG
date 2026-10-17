@@ -6,14 +6,17 @@ export const dynamic = "force-dynamic";
 export const maxDuration = 60;
 
 // Receives pushes from the Tally agent on the client's server (tally-agent/).
-// Authenticated by an HMAC signature, not the admin session. Ops, in order:
-//   ping → start → ledgers* → vouchers* → finish
+// Authenticated by an HMAC signature, not the admin session. Ops:
+//   ping                                      connectivity check (doctor)
+//   config                                    5-minute check-in; returns the schedule
+//   start → ledgers* → vouchers* → finish     one sync run
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const MAX_JSON_BYTES = 20 * 1024 * 1024;
 
 type Payload =
   | { op: "ping" }
+  | { op: "config"; agentVersion?: string }
   | { op: "start"; kind: string; company?: string; agentVersion?: string }
   | { op: "ledgers" | "vouchers"; runId: string; rows: unknown[] }
   | {
@@ -62,6 +65,22 @@ export async function POST(req: Request) {
         .maybeSingle();
       if (error) return bad(`Database error: ${error.message}`, 500);
       return Response.json({ ok: true, lastRun: data });
+    }
+
+    case "config": {
+      const { data, error } = await supabase
+        .from("tally_agent_settings")
+        .update({
+          agent_last_seen_at: new Date().toISOString(),
+          agent_version: payload.agentVersion ?? null,
+        })
+        .eq("id", 1)
+        .select(
+          "enabled, interval_minutes, active_from, active_to, full_sync_time, sync_requested_at, sync_requested_full"
+        )
+        .single();
+      if (error) return bad(`Database error: ${error.message}`, 500);
+      return Response.json({ settings: data });
     }
 
     case "start": {

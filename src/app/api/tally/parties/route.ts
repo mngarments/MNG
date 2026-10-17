@@ -1,11 +1,11 @@
 import { requireAuth } from "@/lib/auth/guard";
 import { getAdminClient } from "@/lib/supabase/admin";
 import { fetchAllPages } from "@/lib/tally/queries";
-import type { TallyParty, TallySyncRun } from "@/lib/types";
+import type { TallyAgentSettings, TallyParty, TallySyncRun } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
 
-/** Every debtor with outstanding/aging totals, plus recent sync runs. */
+/** Every debtor with outstanding/aging totals, plus recent sync runs and the schedule. */
 export async function GET() {
   const unauthorized = await requireAuth();
   if (unauthorized) return unauthorized;
@@ -39,10 +39,18 @@ export async function GET() {
       .maybeSingle();
     if (error) throw new Error(error.message);
 
+    const { data: settings, error: settingsError } = await supabase
+      .from("tally_agent_settings")
+      .select("*")
+      .eq("id", 1)
+      .single();
+    if (settingsError) throw new Error(settingsError.message);
+
     return Response.json({
       parties,
       runs: (runsRes.data ?? []) as TallySyncRun[],
       lastSuccess: lastSuccess as TallySyncRun | null,
+      settings: settings as TallyAgentSettings,
     });
   } catch (err) {
     return Response.json(

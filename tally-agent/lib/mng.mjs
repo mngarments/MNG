@@ -78,6 +78,8 @@ export function createMng({ mngUrl, syncSecret, retries = 4 }) {
 
   return {
     ping: () => send({ op: "ping" }),
+    /** Check in and fetch the sync schedule set in the portal. */
+    config: (agentVersion) => send({ op: "config", agentVersion }),
     start: (kind, company, agentVersion) =>
       send({ op: "start", kind, company, agentVersion }).then((r) => r.runId),
     ledgers: (runId, rows) => sendRows("ledgers", runId, rows),

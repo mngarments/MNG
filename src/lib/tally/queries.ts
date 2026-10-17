@@ -17,6 +17,3 @@ export async function fetchAllPages<T>(
     if (!data || data.length < PAGE) return out;
   }
 }
-
-/** Hours after which synced data is treated as stale in the UI. */
-export const STALE_AFTER_HOURS = 6;

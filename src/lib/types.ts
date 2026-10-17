@@ -205,3 +205,17 @@ export interface TallyLedgerEntry {
   reference: string | null;
   amount: number;
 }
+
+/** The single tally_agent_settings row; times are IST "HH:MM:SS". */
+export interface TallyAgentSettings {
+  enabled: boolean;
+  interval_minutes: number;
+  active_from: string | null;
+  active_to: string | null;
+  full_sync_time: string;
+  sync_requested_at: string | null;
+  sync_requested_full: boolean;
+  agent_last_seen_at: string | null;
+  agent_version: string | null;
+  updated_at: string;
+}
