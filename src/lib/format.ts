@@ -71,3 +71,10 @@ export function dateTime(input: unknown): string {
     minute: "2-digit",
   });
 }
+
+/** Accounting-style balance: 1234 -> "₹1,234.00 Dr", -50 -> "₹50.00 Cr", 0 -> "₹0.00". */
+export function drCr(value: unknown): string {
+  const n = num(value);
+  if (Math.abs(n) < 0.005) return inr(0);
+  return `${inr(Math.abs(n))} ${n > 0 ? "Dr" : "Cr"}`;
+}

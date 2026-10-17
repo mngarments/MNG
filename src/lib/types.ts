@@ -143,3 +143,65 @@ export interface SiteContent {
   sisterCompanies: SisterCompany[];
   catalog: CatalogItem[];
 }
+
+// --- Tally sync (amounts are +Dr / −Cr: positive = party owes us) ---------
+
+export type TallySyncStatus = "running" | "success" | "failed";
+
+export interface TallySyncRun {
+  id: string;
+  kind: "incremental" | "full";
+  company: string | null;
+  agent_version: string | null;
+  status: TallySyncStatus;
+  counts: Record<string, number>;
+  error: string | null;
+  started_at: string;
+  finished_at: string | null;
+}
+
+/** A row of v_tally_party_outstanding. */
+export interface TallyParty {
+  guid: string;
+  name: string;
+  parent_group: string | null;
+  phone: string | null;
+  email: string | null;
+  gstin: string | null;
+  credit_period_days: number | null;
+  closing_balance: number | null;
+  computed_balance: number;
+  last_voucher_date: string | null;
+  open_bills: number;
+  bills_pending: number;
+  unadjusted_credit: number;
+  overdue: number;
+  not_due: number;
+  age_1_30: number;
+  age_31_60: number;
+  age_61_90: number;
+  age_90_plus: number;
+  oldest_due_date: string | null;
+  synced_at: string;
+}
+
+/** A row of v_tally_bills. */
+export interface TallyBill {
+  ledger_guid: string;
+  bill_name: string;
+  bill_date: string | null;
+  due_date: string | null;
+  billed_amount: number;
+  pending_amount: number;
+  days_overdue: number | null;
+}
+
+export interface TallyLedgerEntry {
+  guid: string;
+  date: string;
+  voucher_number: string | null;
+  voucher_type: string | null;
+  narration: string | null;
+  reference: string | null;
+  amount: number;
+}

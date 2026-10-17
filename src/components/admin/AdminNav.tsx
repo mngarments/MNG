@@ -10,11 +10,13 @@ import {
   BarChart3,
   LogOut,
   ExternalLink,
+  Landmark,
 } from "lucide-react";
 
 const NAV = [
   { href: "/admin", label: "Dispatch Hub", icon: Send, exact: true },
   { href: "/admin/tracking", label: "Delivery & Tracking", icon: BarChart3 },
+  { href: "/admin/tally", label: "Tally Accounts", icon: Landmark },
   { href: "/admin/customers", label: "Customer Directory", icon: Users },
   { href: "/admin/site", label: "Website CRM", icon: LayoutGrid },
 ];

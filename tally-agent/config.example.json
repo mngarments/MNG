@@ -1,0 +1,7 @@
+{
+  "mngUrl": "https://your-mng-domain.vercel.app",
+  "syncSecret": "same value as TALLY_SYNC_SECRET in Vercel",
+  "tallyUrl": "http://localhost:9000",
+  "company": "",
+  "fullSyncEveryHours": 24
+}

@@ -1,0 +1,12 @@
+{
+  "name": "mng-tally-agent",
+  "version": "0.2.0",
+  "private": true,
+  "type": "module",
+  "description": "Runs on the Tally server: pulls data from TallyPrime and pushes it to MNG.",
+  "engines": { "node": ">=20" },
+  "scripts": {
+    "doctor": "node agent.mjs doctor",
+    "sync": "node agent.mjs sync"
+  }
+}
